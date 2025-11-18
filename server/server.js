@@ -2286,9 +2286,18 @@ if (process.env.NODE_ENV === 'production') {
             // Don't serve index.html automatically for directory requests
             index: false,
             // Set proper cache headers
-            maxAge: '1d',
-            // Set proper MIME types
             setHeaders: (res, filePath) => {
+                // CRITICAL: Don't cache index.html to prevent stale asset references
+                if (filePath.endsWith('index.html')) {
+                    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+                    res.setHeader('Pragma', 'no-cache');
+                    res.setHeader('Expires', '0');
+                    console.log(`📄 Serving index.html with no-cache headers`);
+                } else {
+                    // Cache assets for 1 day (they have hashed filenames)
+                    res.setHeader('Cache-Control', 'public, max-age=86400');
+                }
+                
                 // Set correct MIME types for different file extensions
                 if (filePath.endsWith('.css')) {
                     res.setHeader('Content-Type', 'text/css; charset=utf-8');
@@ -2313,71 +2322,8 @@ if (process.env.NODE_ENV === 'production') {
             fallthrough: true
         }));
         
-        // Add middleware AFTER static to check if static middleware handled the request
-        app.use((req, res, next) => {
-            // If it's a static file request and headers aren't sent, static middleware didn't find it
-            if ((req.path.match(/\.[a-zA-Z0-9]+$/) || req.path.startsWith('/assets/') || req.path.startsWith('/audio/')) && !res.headersSent) {
-                console.warn(`⚠️  Static middleware didn't serve: ${req.path} - will fall through to routes`);
-            }
-            next();
-        });
-        
-        // Explicitly handle static asset requests to ensure they're served correctly
-        // Use app.use to match all /assets/* paths
-        app.use('/assets', (req, res, next) => {
-            const filePath = req.path; // e.g., /index-Bj7e5BiJ.css (without /assets prefix)
-            const fullPath = path.join(absoluteFrontendPath, 'assets', filePath);
-            
-            console.log(`🔍 Explicit static handler: /assets${filePath}`);
-            console.log(`   Full path: ${fullPath}`);
-            console.log(`   Exists: ${existsSync(fullPath)}`);
-            
-            if (!existsSync(fullPath)) {
-                console.error(`❌ Static file not found: ${fullPath}`);
-                return res.status(404).json({ 
-                    error: 'File not found',
-                    path: `/assets${filePath}`,
-                    message: 'The requested static file does not exist.'
-                });
-            }
-            
-            try {
-                // Set correct MIME type based on extension BEFORE sending file
-                if (filePath.endsWith('.css')) {
-                    res.setHeader('Content-Type', 'text/css; charset=utf-8');
-                } else if (filePath.endsWith('.js')) {
-                    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-                } else if (filePath.endsWith('.json')) {
-                    res.setHeader('Content-Type', 'application/json; charset=utf-8');
-                } else if (filePath.endsWith('.png')) {
-                    res.setHeader('Content-Type', 'image/png');
-                } else if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
-                    res.setHeader('Content-Type', 'image/jpeg');
-                } else if (filePath.endsWith('.svg')) {
-                    res.setHeader('Content-Type', 'image/svg+xml');
-                }
-                
-                console.log(`✅ Explicitly serving static file: /assets${filePath} with Content-Type: ${res.getHeader('Content-Type')}`);
-                res.sendFile(fullPath, (err) => {
-                    if (err) {
-                        console.error(`❌ Error serving static file /assets${filePath}:`, err);
-                        console.error(`   Error details:`, err.message);
-                        console.error(`   Error stack:`, err.stack);
-                        if (!res.headersSent) {
-                            res.status(500).json({ error: 'Failed to serve file', details: err.message });
-                        }
-                    } else {
-                        console.log(`✅ Successfully served: /assets${filePath}`);
-                    }
-                });
-            } catch (error) {
-                console.error(`❌ Exception in static file handler:`, error);
-                console.error(`   Error stack:`, error.stack);
-                if (!res.headersSent) {
-                    res.status(500).json({ error: 'Internal server error', details: error.message });
-                }
-            }
-        });
+        // Remove explicit /assets handler - express.static already handles it
+        // This simplifies the middleware chain and prevents conflicts
         
         // Explicitly handle root path
         app.get('/', (req, res) => {
@@ -2391,6 +2337,10 @@ if (process.env.NODE_ENV === 'production') {
                 });
             }
             console.log('📄 Serving index.html for root path');
+            // Set no-cache headers for index.html
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
             res.sendFile(indexPath, (err) => {
                 if (err) {
                     console.error('Error serving index.html:', err);
@@ -2450,6 +2400,10 @@ if (process.env.NODE_ENV === 'production') {
             }
             
             console.log(`📄 Serving index.html for route: ${req.path}`);
+            // Set no-cache headers for index.html
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
             res.sendFile(indexPath, (err) => {
                 if (err) {
                     console.error('Error serving index.html:', err);
