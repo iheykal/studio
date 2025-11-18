@@ -2264,32 +2264,10 @@ if (process.env.NODE_ENV === 'production') {
             console.warn('⚠️  Could not list assets:', e.message);
         }
         
-        // Explicitly handle root path FIRST (before static middleware)
-        app.get('/', (req, res) => {
-            const indexPath = path.join(absoluteFrontendPath, 'index.html');
-            if (!existsSync(indexPath)) {
-                console.error(`❌ index.html not found at: ${indexPath}`);
-                return res.status(500).json({ 
-                    error: 'Frontend not built',
-                    message: 'The frontend has not been built. Please run "npm run build" before starting the server.',
-                    expectedPath: indexPath
-                });
-            }
-            console.log('📄 Serving index.html for root path');
-            res.sendFile(indexPath, (err) => {
-                if (err) {
-                    console.error('Error serving index.html:', err);
-                    if (!res.headersSent) {
-                        res.status(500).json({ error: 'Failed to serve frontend', details: err.message });
-                    }
-                }
-            });
-        });
-        
-        // Serve static files (CSS, JS, images, etc.) with proper MIME types
-        // This MUST be after the root route but before the catch-all route
+        // Serve static files (CSS, JS, images, etc.) FIRST
+        // This MUST be before any routes to ensure static files are served correctly
         app.use(express.static(absoluteFrontendPath, {
-            // Don't serve index.html for static file requests
+            // Don't serve index.html automatically for directory requests
             index: false,
             // Set proper cache headers
             maxAge: '1d',
@@ -2312,20 +2290,45 @@ if (process.env.NODE_ENV === 'production') {
                     res.setHeader('Content-Type', 'image/svg+xml');
                 }
             },
-            // Allow fallthrough so React Router can handle routes
-            fallthrough: true
+            // Don't fallthrough - return 404 for missing static files
+            fallthrough: false
         }));
         
-        // Add request logging for debugging
+        // Add middleware to log static file requests (after static middleware)
         app.use((req, res, next) => {
-            if (req.path === '/' || !req.path.startsWith('/api')) {
-                console.log(`📥 Request: ${req.method} ${req.path}`);
+            // Only log if it's a static asset request that might have failed
+            if (req.path.startsWith('/assets/') || req.path.startsWith('/audio/') || 
+                req.path.match(/\.[a-zA-Z0-9]+$/)) {
+                const requestedFile = path.join(absoluteFrontendPath, req.path);
+                console.log(`📁 Static file request: ${req.path} (exists: ${existsSync(requestedFile)})`);
             }
             next();
         });
         
-        // Handle React routing - return index.html for all non-API routes
-        // This must be after all API routes and static file serving
+        // Explicitly handle root path
+        app.get('/', (req, res) => {
+            const indexPath = path.join(absoluteFrontendPath, 'index.html');
+            if (!existsSync(indexPath)) {
+                console.error(`❌ index.html not found at: ${indexPath}`);
+                return res.status(500).json({ 
+                    error: 'Frontend not built',
+                    message: 'The frontend has not been built. Please run "npm run build" before starting the server.',
+                    expectedPath: indexPath
+                });
+            }
+            console.log('📄 Serving index.html for root path');
+            res.sendFile(indexPath, (err) => {
+                if (err) {
+                    console.error('Error serving index.html:', err);
+                    if (!res.headersSent) {
+                        res.status(500).json({ error: 'Failed to serve frontend', details: err.message });
+                    }
+                }
+            });
+        });
+        
+        // Handle React routing - return index.html for all non-API, non-static routes
+        // This must be after static file serving and root route
         app.get('*', (req, res) => {
             // Don't serve index.html for API routes or socket.io
             if (req.path.startsWith('/api')) {
@@ -2342,11 +2345,10 @@ if (process.env.NODE_ENV === 'production') {
                 return res.status(404).json({ error: 'Socket.io endpoint not found' });
             }
             
-            // Don't serve index.html for static asset requests (they should be handled by static middleware)
-            // Check if it's a static asset request (has file extension)
+            // Don't serve index.html for static asset requests (they should have been handled by static middleware)
+            // If we get here with a file extension, the file doesn't exist
             const hasExtension = /\.[a-zA-Z0-9]+$/.test(req.path);
             if (hasExtension) {
-                // Static file should have been served by express.static, but if we get here, it doesn't exist
                 const requestedFile = path.join(absoluteFrontendPath, req.path);
                 console.warn(`⚠️  Static file not found: ${req.path} (checked: ${requestedFile})`);
                 return res.status(404).json({ 
@@ -2371,7 +2373,9 @@ if (process.env.NODE_ENV === 'production') {
             res.sendFile(indexPath, (err) => {
                 if (err) {
                     console.error('Error serving index.html:', err);
-                    res.status(500).json({ error: 'Failed to serve frontend', details: err.message });
+                    if (!res.headersSent) {
+                        res.status(500).json({ error: 'Failed to serve frontend', details: err.message });
+                    }
                 }
             });
         });
