@@ -61,16 +61,17 @@ export default defineConfig(({ mode }) => {
     const VITE_USE_REAL_API = mergedEnv.VITE_USE_REAL_API || mergedEnv.USE_REAL_API || (mode === 'production' ? 'true' : 'false');
     const GEMINI_API_KEY = mergedEnv.GEMINI_API_KEY;
     
-    // Log environment variable sources for debugging
-    if (mode === 'production') {
-        console.log('🔧 Vite Build Environment Variables:');
-        console.log('   Mode:', mode);
-        console.log('   VITE_API_URL:', VITE_API_URL);
-        console.log('   VITE_SOCKET_URL:', VITE_SOCKET_URL);
-        console.log('   VITE_USE_REAL_API:', VITE_USE_REAL_API);
-        console.log('   Process Env Keys:', Object.keys(processEnv).length > 0 ? Object.keys(processEnv) : 'none');
-        console.log('   Server Env:', Object.keys(serverEnv).length > 0 ? 'loaded from server/.env' : 'not found');
-    }
+    // ALWAYS log environment variable sources for debugging (not just in production)
+    console.log('========================================');
+    console.log('🔧 Vite Build Environment Variables');
+    console.log('========================================');
+    console.log('Mode:', mode);
+    console.log('VITE_API_URL:', VITE_API_URL);
+    console.log('VITE_SOCKET_URL:', VITE_SOCKET_URL);
+    console.log('VITE_USE_REAL_API:', VITE_USE_REAL_API);
+    console.log('Process Env Keys:', Object.keys(processEnv).length > 0 ? Object.keys(processEnv) : 'none');
+    console.log('Server Env:', Object.keys(serverEnv).length > 0 ? 'loaded from server/.env' : 'not found');
+    console.log('========================================');
     
     return {
       root: '.',
