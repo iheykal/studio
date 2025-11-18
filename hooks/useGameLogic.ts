@@ -504,6 +504,9 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             console.error('❌ Error broadcasting action:', error);
         }
     }, [isMultiplayer, multiplayerConfig]);
+    
+    // Initialize broadcastAction ref immediately
+    broadcastActionRef.current = broadcastAction;
 
     const calculateLegalMoves = useCallback((currentState: GameState, diceValue: number): LegalMove[] => {
         const { tokens, currentPlayerIndex, players } = currentState;
@@ -694,6 +697,9 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             }
         }
     }, [state, calculateLegalMoves, isMyTurn, isMultiplayer, broadcastAction, multiplayerConfig]);
+    
+    // Initialize handleRollDice ref immediately
+    handleRollDiceRef.current = handleRollDice;
     
     // Update refs whenever functions change (must be after function definitions)
     useEffect(() => {
