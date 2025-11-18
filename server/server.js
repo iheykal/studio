@@ -2323,12 +2323,12 @@ if (process.env.NODE_ENV === 'production') {
         });
         
         // Explicitly handle static asset requests to ensure they're served correctly
-        // This runs BEFORE the catch-all route and ensures static files get proper MIME types
-        app.get('/assets/*', (req, res) => {
-            const filePath = req.path; // e.g., /assets/index-Bj7e5BiJ.css
-            const fullPath = path.join(absoluteFrontendPath, filePath);
+        // Use app.use to match all /assets/* paths
+        app.use('/assets', (req, res, next) => {
+            const filePath = req.path; // e.g., /index-Bj7e5BiJ.css (without /assets prefix)
+            const fullPath = path.join(absoluteFrontendPath, 'assets', filePath);
             
-            console.log(`🔍 Explicit static handler: ${filePath}`);
+            console.log(`🔍 Explicit static handler: /assets${filePath}`);
             console.log(`   Full path: ${fullPath}`);
             console.log(`   Exists: ${existsSync(fullPath)}`);
             
@@ -2336,37 +2336,47 @@ if (process.env.NODE_ENV === 'production') {
                 console.error(`❌ Static file not found: ${fullPath}`);
                 return res.status(404).json({ 
                     error: 'File not found',
-                    path: filePath,
+                    path: `/assets${filePath}`,
                     message: 'The requested static file does not exist.'
                 });
             }
             
-            // Set correct MIME type based on extension BEFORE sending file
-            if (filePath.endsWith('.css')) {
-                res.setHeader('Content-Type', 'text/css; charset=utf-8');
-            } else if (filePath.endsWith('.js')) {
-                res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-            } else if (filePath.endsWith('.json')) {
-                res.setHeader('Content-Type', 'application/json; charset=utf-8');
-            } else if (filePath.endsWith('.png')) {
-                res.setHeader('Content-Type', 'image/png');
-            } else if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
-                res.setHeader('Content-Type', 'image/jpeg');
-            } else if (filePath.endsWith('.svg')) {
-                res.setHeader('Content-Type', 'image/svg+xml');
-            }
-            
-            console.log(`✅ Explicitly serving static file: ${filePath} with Content-Type: ${res.getHeader('Content-Type')}`);
-            res.sendFile(fullPath, (err) => {
-                if (err) {
-                    console.error(`❌ Error serving static file ${filePath}:`, err);
-                    if (!res.headersSent) {
-                        res.status(500).json({ error: 'Failed to serve file', details: err.message });
-                    }
-                } else {
-                    console.log(`✅ Successfully served: ${filePath}`);
+            try {
+                // Set correct MIME type based on extension BEFORE sending file
+                if (filePath.endsWith('.css')) {
+                    res.setHeader('Content-Type', 'text/css; charset=utf-8');
+                } else if (filePath.endsWith('.js')) {
+                    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+                } else if (filePath.endsWith('.json')) {
+                    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+                } else if (filePath.endsWith('.png')) {
+                    res.setHeader('Content-Type', 'image/png');
+                } else if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
+                    res.setHeader('Content-Type', 'image/jpeg');
+                } else if (filePath.endsWith('.svg')) {
+                    res.setHeader('Content-Type', 'image/svg+xml');
                 }
-            });
+                
+                console.log(`✅ Explicitly serving static file: /assets${filePath} with Content-Type: ${res.getHeader('Content-Type')}`);
+                res.sendFile(fullPath, (err) => {
+                    if (err) {
+                        console.error(`❌ Error serving static file /assets${filePath}:`, err);
+                        console.error(`   Error details:`, err.message);
+                        console.error(`   Error stack:`, err.stack);
+                        if (!res.headersSent) {
+                            res.status(500).json({ error: 'Failed to serve file', details: err.message });
+                        }
+                    } else {
+                        console.log(`✅ Successfully served: /assets${filePath}`);
+                    }
+                });
+            } catch (error) {
+                console.error(`❌ Exception in static file handler:`, error);
+                console.error(`   Error stack:`, error.stack);
+                if (!res.headersSent) {
+                    res.status(500).json({ error: 'Internal server error', details: error.message });
+                }
+            }
         });
         
         // Explicitly handle root path
