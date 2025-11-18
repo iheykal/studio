@@ -11,30 +11,19 @@ class SocketService {
       return envUrl.trim();
     }
 
-    // Use Railway backend for WebSocket multiplayer (hybrid deployment)
+    // Check if we're in a browser environment
     if (typeof window !== 'undefined') {
       const hostname = window.location.hostname;
       const isProduction = hostname !== 'localhost' && hostname !== '127.0.0.1';
 
       if (isProduction) {
-        // Use Railway backend URL for production multiplayer
-        return 'https://your-railway-backend-url'; // Replace with actual Railway URL
+        // In production, use same origin (works when frontend and backend are on same domain)
+        // This is for Render deployment where both are served together
+        return window.location.origin;
       }
     }
 
     // Development fallback
-      // This works when frontend and backend are deployed together
-      if (isProduction) {
-        // Use same origin - works when frontend and backend are on same domain
-        // Socket.io will automatically use the current window location
-        return window.location.origin;
-      }
-      
-      // Development: use localhost with port 3001
-      return 'http://localhost:3001';
-    }
-    
-    // Default fallback for development
     return 'http://localhost:3001';
   }
 
