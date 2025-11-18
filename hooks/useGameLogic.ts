@@ -346,6 +346,7 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
     
     const localDispatchRef = useRef(dispatch);
     localDispatchRef.current = dispatch;
+    dispatchRef.current = dispatch;
     
     // Keep a ref to the current state for use in callbacks
     const stateRef = useRef(state);
@@ -363,6 +364,11 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
     const [diceRollCountdown, setDiceRollCountdown] = useState<number | null>(null);
     const [moveCountdown, setMoveCountdown] = useState<number | null>(null);
     const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    
+    // Refs to store latest functions to avoid timer resets
+    const handleRollDiceRef = useRef<(() => Promise<void>) | null>(null);
+    const broadcastActionRef = useRef<((action: Action) => void) | null>(null);
+    const dispatchRef = useRef<((action: Action) => void) | null>(null);
 
     // Track socket connection status
     useEffect(() => {
@@ -498,7 +504,6 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             console.error('❌ Error broadcasting action:', error);
         }
     }, [isMultiplayer, multiplayerConfig]);
-
 
     const calculateLegalMoves = useCallback((currentState: GameState, diceValue: number): LegalMove[] => {
         const { tokens, currentPlayerIndex, players } = currentState;
@@ -689,6 +694,15 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             }
         }
     }, [state, calculateLegalMoves, isMyTurn, isMultiplayer, broadcastAction, multiplayerConfig]);
+    
+    // Update refs whenever functions change (must be after function definitions)
+    useEffect(() => {
+        broadcastActionRef.current = broadcastAction;
+    }, [broadcastAction]);
+    
+    useEffect(() => {
+        handleRollDiceRef.current = handleRollDice;
+    }, [handleRollDice]);
 
     // Track when dice was rolled to wait for animation
     const diceRollTimeRef = useRef<number | null>(null);
@@ -879,7 +893,7 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
                             console.log('🤖 Bot playing for disconnected player');
                         }
                         
-                        handleRollDice();
+                        handleRollDiceRef.current?.();
                     }
                 }
             }, 15000); // Always wait 15 seconds
@@ -892,7 +906,7 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             }
             setDiceRollCountdown(null); // Clear countdown when effect cleans up
         };
-    }, [state.turnState, state.currentPlayerIndex, state.gameStarted, isMultiplayer, multiplayerConfig?.localPlayerColor, handleRollDice]);
+    }, [state.turnState, state.currentPlayerIndex, state.gameStarted, isMultiplayer, multiplayerConfig?.localPlayerColor]);
 
     // Auto-move after 25 seconds if player doesn't move
     useEffect(() => {
@@ -955,13 +969,13 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
                         const aiMove = await getAIMove(latestState);
                         if (aiMove) {
                             const moveAction: Action = { type: 'MOVE_TOKEN', move: aiMove };
-                            dispatch(moveAction);
-                            broadcastAction(moveAction);
+                            dispatchRef.current?.(moveAction);
+                            broadcastActionRef.current?.(moveAction);
                         } else {
                             // No move available, pass turn
                             const nextTurnAction: Action = { type: 'NEXT_TURN', grantExtraTurn: false };
-                            dispatch(nextTurnAction);
-                            broadcastAction(nextTurnAction);
+                            dispatchRef.current?.(nextTurnAction);
+                            broadcastActionRef.current?.(nextTurnAction);
                         }
                     }
                 }
@@ -975,7 +989,7 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             }
             setMoveCountdown(null); // Clear countdown when effect cleans up
         };
-    }, [state.turnState, state.legalMoves, state.currentPlayerIndex, state.gameStarted, isMultiplayer, multiplayerConfig?.localPlayerColor, broadcastAction, dispatch]);
+    }, [state.turnState, state.legalMoves, state.currentPlayerIndex, state.gameStarted, isMultiplayer, multiplayerConfig?.localPlayerColor]);
 
     useEffect(() => {
         const currentPlayer = state.players[state.currentPlayerIndex];
