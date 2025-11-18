@@ -119,3 +119,4 @@ After removing Vercel:
 - ⚠️ **GitHub App integration** also needs to be removed
 - ✅ **After removal**, only Render will deploy
 
+

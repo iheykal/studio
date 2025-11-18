@@ -7,7 +7,7 @@ class SocketService {
   private getDefaultSocketUrl(): string {
     // First, check if environment variable is explicitly set (highest priority)
     const envUrl = import.meta.env.VITE_SOCKET_URL;
-    if (envUrl && envUrl.trim() !== '' && envUrl !== 'http://localhost:3001') {
+    if (envUrl && envUrl.trim() !== '') {
       return envUrl.trim();
     }
 

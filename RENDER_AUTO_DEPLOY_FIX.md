@@ -125,3 +125,4 @@ Once deployment is working:
 2. Check browser console for debug logs (⏰ emoji logs)
 3. Verify the countdown displays correctly
 
+

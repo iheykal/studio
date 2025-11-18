@@ -33,11 +33,26 @@ const corsOptions = {
         }
         
         // In production, allow specific origins or same-origin
+        // BUT also allow local network IPs for local development/testing
         if (process.env.NODE_ENV === 'production') {
             const allowedOrigins = process.env.FRONTEND_URL?.split(',') || [];
-            // Allow same-origin requests (when frontend and backend are together)
-            // Also allow explicitly configured origins
-            if (allowedOrigins.includes(origin)) {
+            
+            // First check if it's a local network IP (for local testing even in production mode)
+            const localNetworkPatterns = [
+                /^http:\/\/localhost:\d+$/,
+                /^http:\/\/127\.0\.0\.1:\d+$/,
+                /^http:\/\/192\.168\.\d+\.\d+:\d+$/,
+                /^http:\/\/10\.\d+\.\d+\.\d+:\d+$/,
+                /^http:\/\/172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+:\d+$/
+            ];
+            const isLocalNetwork = localNetworkPatterns.some(pattern => pattern.test(origin));
+            
+            if (isLocalNetwork) {
+                // Allow local network IPs even in production mode (for local testing)
+                console.log(`✅ CORS allowing local network origin (production mode): ${origin}`);
+                callback(null, origin);
+            } else if (allowedOrigins.includes(origin)) {
+                // Allow explicitly configured origins
                 callback(null, true);
             } else {
                 // If FRONTEND_URL is not set, allow all (for same-origin deployment)
@@ -45,11 +60,12 @@ const corsOptions = {
                 if (allowedOrigins.length === 0) {
                     callback(null, true);
                 } else {
+                    console.warn(`⚠️  CORS blocked origin in production: ${origin}`);
                     callback(new Error('Not allowed by CORS'));
                 }
             }
         } else {
-            // Development: Allow localhost and local network
+            // Development: Allow localhost and local network - be very permissive
             const allowedPatterns = [
                 /^http:\/\/localhost:\d+$/,
                 /^http:\/\/127\.0\.0\.1:\d+$/,
@@ -59,13 +75,129 @@ const corsOptions = {
             ];
             const isAllowed = allowedPatterns.some(pattern => pattern.test(origin)) || 
                             process.env.FRONTEND_URL?.split(',').includes(origin);
-            callback(isAllowed ? null : new Error('Not allowed by CORS'), isAllowed);
+            if (isAllowed) {
+                console.log(`✅ CORS allowing origin: ${origin}`);
+                callback(null, origin);
+            } else {
+                // In development, be permissive - allow the origin anyway
+                console.log(`⚠️  CORS pattern not matched, but allowing in dev: ${origin}`);
+                callback(null, origin);
+            }
         }
     },
-    credentials: true
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['Content-Type', 'Authorization'],
+    optionsSuccessStatus: 200 // Some legacy browsers (IE11, various SmartTVs) choke on 204
 };
 
+// Manual OPTIONS handler (MUST be before CORS middleware to handle preflight)
+app.options('*', (req, res) => {
+    const origin = req.headers.origin;
+    console.log('🔍 OPTIONS request received (manual handler):', {
+        origin: origin,
+        path: req.path,
+        method: req.method,
+        headers: req.headers['access-control-request-headers']
+    });
+    
+    // Always allow network IPs in development
+    const isProduction = process.env.NODE_ENV === 'production';
+    
+    if (!origin) {
+        res.header('Access-Control-Allow-Origin', '*');
+    } else {
+        if (!isProduction) {
+            // Development: Allow localhost and network IPs
+            const allowedPatterns = [
+                /^http:\/\/localhost:\d+$/,
+                /^http:\/\/127\.0\.0\.1:\d+$/,
+                /^http:\/\/192\.168\.\d+\.\d+:\d+$/,
+                /^http:\/\/10\.\d+\.\d+\.\d+:\d+$/,
+                /^http:\/\/172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+:\d+$/
+            ];
+            const isAllowed = allowedPatterns.some(pattern => pattern.test(origin));
+            console.log('🔍 Origin check:', { origin, isAllowed, patterns: allowedPatterns.map(p => p.toString()) });
+            if (isAllowed) {
+                res.header('Access-Control-Allow-Origin', origin);
+                console.log('✅ Allowed origin:', origin);
+            } else {
+                // In development, allow all origins
+                res.header('Access-Control-Allow-Origin', origin);
+                console.log('✅ Allowed origin (dev fallback):', origin);
+            }
+        } else {
+            // Production: Check FRONTEND_URL
+            const allowedOrigins = process.env.FRONTEND_URL?.split(',') || [];
+            if (allowedOrigins.includes(origin) || allowedOrigins.length === 0) {
+                res.header('Access-Control-Allow-Origin', origin || '*');
+            } else {
+                res.header('Access-Control-Allow-Origin', '*');
+            }
+        }
+    }
+    
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Max-Age', '86400'); // 24 hours
+    
+    console.log('✅ OPTIONS response headers set');
+    res.sendStatus(200);
+});
+
+// Apply CORS middleware (after OPTIONS handler)
 app.use(cors(corsOptions));
+
+// Add CORS headers to all responses (safety net)
+app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    
+    // Debug logging for CORS (development only)
+    if (process.env.NODE_ENV !== 'production') {
+        if (req.method === 'OPTIONS') {
+            console.log('🔍 CORS Preflight Request:', {
+                origin: origin,
+                method: req.method,
+                path: req.path,
+                headers: req.headers['access-control-request-headers']
+            });
+        }
+    }
+    
+    // Set CORS headers for all requests
+    if (origin) {
+        const isProduction = process.env.NODE_ENV === 'production';
+        if (!isProduction) {
+            // Development: Allow localhost
+            const allowedPatterns = [
+                /^http:\/\/localhost:\d+$/,
+                /^http:\/\/127\.0\.0\.1:\d+$/,
+                /^http:\/\/192\.168\.\d+\.\d+:\d+$/,
+                /^http:\/\/10\.\d+\.\d+\.\d+:\d+$/,
+                /^http:\/\/172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+:\d+$/
+            ];
+            const isAllowed = allowedPatterns.some(pattern => pattern.test(origin));
+            if (isAllowed) {
+                res.header('Access-Control-Allow-Origin', origin);
+            }
+        } else {
+            // Production: Check FRONTEND_URL
+            const allowedOrigins = process.env.FRONTEND_URL?.split(',') || [];
+            if (allowedOrigins.includes(origin) || allowedOrigins.length === 0) {
+                res.header('Access-Control-Allow-Origin', origin);
+            }
+        }
+    }
+    
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    
+    next();
+});
+
 app.use(express.json()); // Parse JSON bodies
 
 // Security: Trust proxy for accurate IP addresses (important for rate limiting)
@@ -2094,6 +2226,16 @@ mongoose.connection.on('error', (err) => {
   console.error('❌ MongoDB error:', err);
 });
 
+// ===== HEALTH CHECK ENDPOINT =====
+app.get('/health', (req, res) => {
+    res.json({ 
+        status: 'ok', 
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'development',
+        mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+    });
+});
+
 // ===== SERVE FRONTEND STATIC FILES (Production) =====
 // Serve static files from the React app build directory
 if (process.env.NODE_ENV === 'production') {
@@ -2104,22 +2246,115 @@ if (process.env.NODE_ENV === 'production') {
     if (existsSync(frontendPath)) {
         console.log('📦 Serving frontend from:', frontendPath);
         
-        // Serve static files (CSS, JS, images, etc.)
-        app.use(express.static(frontendPath));
+        // Serve static files (CSS, JS, images, etc.) with proper MIME types
+        // This MUST be before the catch-all route
+        app.use(express.static(frontendPath, {
+            // Don't serve index.html for static file requests
+            index: false,
+            // Set proper cache headers
+            maxAge: '1d',
+            // Set proper MIME types
+            setHeaders: (res, filePath) => {
+                // Set correct MIME types for different file extensions
+                if (filePath.endsWith('.css')) {
+                    res.setHeader('Content-Type', 'text/css; charset=utf-8');
+                } else if (filePath.endsWith('.js')) {
+                    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+                } else if (filePath.endsWith('.json')) {
+                    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+                } else if (filePath.endsWith('.mp3')) {
+                    res.setHeader('Content-Type', 'audio/mpeg');
+                } else if (filePath.endsWith('.png')) {
+                    res.setHeader('Content-Type', 'image/png');
+                } else if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
+                    res.setHeader('Content-Type', 'image/jpeg');
+                } else if (filePath.endsWith('.svg')) {
+                    res.setHeader('Content-Type', 'image/svg+xml');
+                }
+            },
+            // Fallthrough: if file not found, continue to next middleware
+            fallthrough: true
+        }));
+        
+        // Log static file requests for debugging
+        if (process.env.NODE_ENV !== 'production') {
+            app.use((req, res, next) => {
+                if (req.path.startsWith('/assets/') || req.path.startsWith('/audio/')) {
+                    const requestedFile = path.join(frontendPath, req.path);
+                    console.log('📁 Static file request:', {
+                        path: req.path,
+                        exists: existsSync(requestedFile),
+                        file: requestedFile
+                    });
+                }
+                next();
+            });
+        }
         
         // Handle React routing - return index.html for all non-API routes
-        // This must be after all API routes
+        // This must be after all API routes and static file serving
         app.get('*', (req, res) => {
-            // Don't serve index.html for API routes
-            if (req.path.startsWith('/api') || req.path.startsWith('/socket.io')) {
-                return res.status(404).json({ error: 'Route not found' });
+            // Don't serve index.html for API routes or socket.io
+            if (req.path.startsWith('/api')) {
+                console.warn(`⚠️  API route not found: ${req.method} ${req.path}`);
+                return res.status(404).json({ 
+                    error: 'API route not found',
+                    path: req.path,
+                    method: req.method,
+                    message: 'The requested API endpoint does not exist. Check the server logs for available endpoints.'
+                });
             }
+            
+            if (req.path.startsWith('/socket.io')) {
+                return res.status(404).json({ error: 'Socket.io endpoint not found' });
+            }
+            
+            // Don't serve index.html for static asset requests (they should be handled by static middleware)
+            // Check if it's a static asset request (has file extension)
+            const hasExtension = /\.[a-zA-Z0-9]+$/.test(req.path);
+            if (hasExtension) {
+                // This shouldn't happen if static middleware is working, but handle it anyway
+                const requestedFile = path.join(frontendPath, req.path);
+                if (existsSync(requestedFile)) {
+                    return res.sendFile(requestedFile);
+                }
+                return res.status(404).send('File not found');
+            }
+            
             // Serve index.html for all other routes (React Router)
-            res.sendFile(path.join(frontendPath, 'index.html'));
+            res.sendFile(path.join(frontendPath, 'index.html'), (err) => {
+                if (err) {
+                    console.error('Error serving index.html:', err);
+                    res.status(500).json({ error: 'Failed to serve frontend' });
+                }
+            });
         });
     } else {
         console.warn('⚠️  Frontend dist folder not found. Make sure to build the frontend first.');
         console.warn('   Expected path:', frontendPath);
+        
+        // Provide a helpful error page in production if dist doesn't exist
+        app.get('*', (req, res) => {
+            if (req.path.startsWith('/api')) {
+                console.warn(`⚠️  API route not found: ${req.method} ${req.path}`);
+                return res.status(404).json({ 
+                    error: 'API route not found',
+                    path: req.path,
+                    method: req.method
+                });
+            }
+            res.status(503).send(`
+                <html>
+                    <head><title>Frontend Not Built</title></head>
+                    <body style="font-family: Arial; padding: 40px; text-align: center;">
+                        <h1>Frontend Not Built</h1>
+                        <p>The frontend has not been built yet. Please run:</p>
+                        <pre style="background: #f0f0f0; padding: 20px; display: inline-block; border-radius: 5px;">npm run build</pre>
+                        <p>Expected dist folder at: ${frontendPath}</p>
+                    </body>
+                </html>
+            `);
+        });
     }
 } else {
     // In development, frontend is served by Vite dev server

@@ -3,24 +3,51 @@
 
 // Helper function to get the API URL, automatically detecting hostname for mobile devices
 function getApiUrl(): string {
-  // First, check if environment variable is explicitly set (highest priority)
-  const envUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL;
-  if (envUrl && envUrl.trim() !== '' && envUrl !== 'http://localhost:3001/api') {
-    // Ensure it ends with /api if it doesn't already
-    const cleanUrl = envUrl.trim();
-    if (cleanUrl.endsWith('/api')) {
-      return cleanUrl;
-    } else if (!cleanUrl.endsWith('/api/')) {
-      return `${cleanUrl}/api`;
-    }
-    return cleanUrl;
-  }
-  
   // If we're in the browser, detect the hostname dynamically
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
     const protocol = window.location.protocol; // 'http:' or 'https:'
-    const isProduction = hostname !== 'localhost' && hostname !== '127.0.0.1';
+    const isProduction = hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '192.168.' && !hostname.startsWith('192.168.');
+    
+    // Check if environment variable is explicitly set (highest priority)
+    const envUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL;
+    if (envUrl && envUrl.trim() !== '') {
+      const cleanUrl = envUrl.trim();
+      
+      // If it's a relative URL (/api), check if we're on localhost or network IP
+      // If on localhost or network IP, always use full URL (frontend and backend are on different ports)
+      if (cleanUrl.startsWith('/')) {
+        if (hostname === 'localhost' || hostname === '127.0.0.1') {
+          // Local development: use localhost with port 3001
+          return 'http://localhost:3001/api';
+        } else if (hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.')) {
+          // Network IP: use the same hostname with port 3001
+          return `${protocol}//${hostname}:3001/api`;
+        } else {
+          // Production/deployed: use relative URL (frontend and backend on same domain)
+          return cleanUrl;
+        }
+      }
+      
+      // If it's already a full URL, use it as-is
+      if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) {
+        // Ensure it ends with /api if it doesn't already
+        if (cleanUrl.endsWith('/api')) {
+          return cleanUrl;
+        } else if (!cleanUrl.endsWith('/api/')) {
+          return `${cleanUrl}/api`;
+        }
+        return cleanUrl;
+      }
+      
+      // Otherwise, ensure it ends with /api
+      if (cleanUrl.endsWith('/api')) {
+        return cleanUrl;
+      } else if (!cleanUrl.endsWith('/api/')) {
+        return `${cleanUrl}/api`;
+      }
+      return cleanUrl;
+    }
     
     // In production (deployed), use relative URL if backend is on same domain
     // This works when frontend and backend are deployed together
@@ -29,11 +56,26 @@ function getApiUrl(): string {
       return '/api';
     }
     
-    // Development: use localhost with port 3001
+    // Development: use the same hostname as frontend with port 3001
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return 'http://localhost:3001/api';
+    } else if (hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.')) {
+      // Network IP: use the same hostname with port 3001
+      return `${protocol}//${hostname}:3001/api`;
+    }
+    
+    // Fallback to localhost
     return 'http://localhost:3001/api';
   }
   
-  // Default fallback for development
+  // Default fallback - try to detect hostname
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    const protocol = window.location.protocol;
+    if (hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.')) {
+      return `${protocol}//${hostname}:3001/api`;
+    }
+  }
   return 'http://localhost:3001/api';
 }
 
