@@ -16,7 +16,7 @@
     "start:server": "cd server && npm start",
     "railway:build": "npm install && npm run build && cd server && npm install",
     "railway:start": "cd server && npm start",
-    "render:build": "NODE_ENV=development npm ci && npm run build && cd server && npm install",
+    "render:build": "npm install --production=false && npm run build && cd server && npm install",
     "render:start": "cd server && npm start"
   },
   "dependencies": {
