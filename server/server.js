@@ -2241,29 +2241,27 @@ app.get('/health', (req, res) => {
 if (process.env.NODE_ENV === 'production') {
     // Path to the built frontend (dist folder in root, one level up from server)
     const frontendPath = path.join(__dirname, '..', 'dist');
+    const absoluteFrontendPath = path.resolve(frontendPath);
+    
+    console.log('🔍 Checking for dist folder...');
+    console.log('   Relative path:', frontendPath);
+    console.log('   Absolute path:', absoluteFrontendPath);
+    console.log('   Exists:', existsSync(absoluteFrontendPath));
     
     // Check if dist folder exists
-    if (existsSync(frontendPath)) {
-        console.log('📦 Serving frontend from:', frontendPath);
+    if (existsSync(absoluteFrontendPath)) {
+        console.log('✅ Dist folder found!');
+        console.log('📦 Serving frontend from:', absoluteFrontendPath);
         
-        // Serve static files (CSS, JS, images, etc.) with proper MIME types
-        // This MUST be before the catch-all route
-        // Use absolute path resolution to ensure it works on Render
-        const absoluteFrontendPath = path.resolve(frontendPath);
-        console.log('📦 Absolute frontend path:', absoluteFrontendPath);
-        console.log('📦 Dist folder exists:', existsSync(absoluteFrontendPath));
-        
-        if (existsSync(absoluteFrontendPath)) {
-            // List files in dist/assets to verify build
-            try {
-                const assetsPath = path.join(absoluteFrontendPath, 'assets');
-                if (existsSync(assetsPath)) {
-                    const assets = readdirSync(assetsPath);
-                    console.log('📦 Assets found:', assets.slice(0, 5), '...');
-                }
-            } catch (e) {
-                console.warn('⚠️  Could not list assets:', e.message);
+        // List files in dist/assets to verify build
+        try {
+            const assetsPath = path.join(absoluteFrontendPath, 'assets');
+            if (existsSync(assetsPath)) {
+                const assets = readdirSync(assetsPath);
+                console.log('📦 Assets found:', assets.slice(0, 5), '...');
             }
+        } catch (e) {
+            console.warn('⚠️  Could not list assets:', e.message);
         }
         
         app.use(express.static(absoluteFrontendPath, {
@@ -2394,10 +2392,75 @@ if (process.env.NODE_ENV === 'production') {
             });
         });
     } else {
-        console.warn('⚠️  Frontend dist folder not found. Make sure to build the frontend first.');
-        console.warn('   Expected path:', frontendPath);
+        console.error('❌ Frontend dist folder not found!');
+        console.error('   Expected path:', absoluteFrontendPath);
+        console.error('   __dirname:', __dirname);
+        console.error('   Current working directory:', process.cwd());
+        
+        // Try alternative paths
+        const altPaths = [
+            path.join(process.cwd(), 'dist'),
+            path.join(__dirname, 'dist'),
+            path.resolve('dist')
+        ];
+        
+        for (const altPath of altPaths) {
+            if (existsSync(altPath)) {
+                console.log(`✅ Found dist folder at alternative path: ${altPath}`);
+                // Use this path instead
+                const absoluteFrontendPath = path.resolve(altPath);
+                
+                app.use(express.static(absoluteFrontendPath, {
+                    index: false,
+                    maxAge: '1d',
+                    setHeaders: (res, filePath) => {
+                        if (filePath.endsWith('.css')) {
+                            res.setHeader('Content-Type', 'text/css; charset=utf-8');
+                        } else if (filePath.endsWith('.js')) {
+                            res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+                        }
+                    },
+                    fallthrough: false
+                }));
+                
+                app.get('/', (req, res) => {
+                    const indexPath = path.join(absoluteFrontendPath, 'index.html');
+                    res.sendFile(indexPath);
+                });
+                
+                app.get('*', (req, res) => {
+                    if (req.path.startsWith('/api')) {
+                        return res.status(404).json({ error: 'API route not found' });
+                    }
+                    const indexPath = path.join(absoluteFrontendPath, 'index.html');
+                    res.sendFile(indexPath);
+                });
+                
+                return; // Exit early if we found the dist folder
+            }
+        }
+        
+        // If we get here, dist folder really doesn't exist
+        console.error('❌ Dist folder not found in any expected location!');
         
         // Provide a helpful error page in production if dist doesn't exist
+        app.get('/', (req, res) => {
+            res.status(503).send(`
+                <html>
+                    <head><title>Frontend Not Built</title></head>
+                    <body style="font-family: Arial; padding: 40px; text-align: center;">
+                        <h1>Frontend Not Built</h1>
+                        <p>The frontend has not been built yet. Please check the build logs.</p>
+                        <p>Expected dist folder at: ${absoluteFrontendPath}</p>
+                        <p>Checked paths:</p>
+                        <ul style="text-align: left; display: inline-block;">
+                            ${altPaths.map(p => `<li>${p}</li>`).join('')}
+                        </ul>
+                    </body>
+                </html>
+            `);
+        });
+        
         app.get('*', (req, res) => {
             if (req.path.startsWith('/api')) {
                 console.warn(`⚠️  API route not found: ${req.method} ${req.path}`);
@@ -2412,9 +2475,8 @@ if (process.env.NODE_ENV === 'production') {
                     <head><title>Frontend Not Built</title></head>
                     <body style="font-family: Arial; padding: 40px; text-align: center;">
                         <h1>Frontend Not Built</h1>
-                        <p>The frontend has not been built yet. Please run:</p>
-                        <pre style="background: #f0f0f0; padding: 20px; display: inline-block; border-radius: 5px;">npm run build</pre>
-                        <p>Expected dist folder at: ${frontendPath}</p>
+                        <p>The frontend has not been built yet. Please check the build logs.</p>
+                        <p>Expected dist folder at: ${absoluteFrontendPath}</p>
                     </body>
                 </html>
             `);
