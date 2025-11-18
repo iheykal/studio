@@ -2264,6 +2264,22 @@ if (process.env.NODE_ENV === 'production') {
             console.warn('⚠️  Could not list assets:', e.message);
         }
         
+        // Add middleware BEFORE static to log all requests
+        app.use((req, res, next) => {
+            // Log static file requests
+            if (req.path.match(/\.[a-zA-Z0-9]+$/) || req.path.startsWith('/assets/') || req.path.startsWith('/audio/')) {
+                const requestedFile = path.join(absoluteFrontendPath, req.path);
+                const fileExists = existsSync(requestedFile);
+                console.log(`📁 Static file request: ${req.path}`);
+                console.log(`   Full path: ${requestedFile}`);
+                console.log(`   Exists: ${fileExists}`);
+                if (!fileExists) {
+                    console.warn(`   ⚠️  File not found!`);
+                }
+            }
+            next();
+        });
+        
         // Serve static files (CSS, JS, images, etc.) FIRST
         // This MUST be before any routes to ensure static files are served correctly
         app.use(express.static(absoluteFrontendPath, {
@@ -2276,8 +2292,10 @@ if (process.env.NODE_ENV === 'production') {
                 // Set correct MIME types for different file extensions
                 if (filePath.endsWith('.css')) {
                     res.setHeader('Content-Type', 'text/css; charset=utf-8');
+                    console.log(`✅ Serving CSS file: ${filePath} with Content-Type: text/css`);
                 } else if (filePath.endsWith('.js')) {
                     res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+                    console.log(`✅ Serving JS file: ${filePath} with Content-Type: application/javascript`);
                 } else if (filePath.endsWith('.json')) {
                     res.setHeader('Content-Type', 'application/json; charset=utf-8');
                 } else if (filePath.endsWith('.mp3')) {
@@ -2295,13 +2313,11 @@ if (process.env.NODE_ENV === 'production') {
             fallthrough: true
         }));
         
-        // Add middleware to log static file requests (after static middleware)
+        // Add middleware AFTER static to check if static middleware handled the request
         app.use((req, res, next) => {
-            // Only log if it's a static asset request that might have failed
-            if (req.path.startsWith('/assets/') || req.path.startsWith('/audio/') || 
-                req.path.match(/\.[a-zA-Z0-9]+$/)) {
-                const requestedFile = path.join(absoluteFrontendPath, req.path);
-                console.log(`📁 Static file request: ${req.path} (exists: ${existsSync(requestedFile)})`);
+            // If it's a static file request and headers aren't sent, static middleware didn't find it
+            if ((req.path.match(/\.[a-zA-Z0-9]+$/) || req.path.startsWith('/assets/') || req.path.startsWith('/audio/')) && !res.headersSent) {
+                console.warn(`⚠️  Static middleware didn't serve: ${req.path} - will fall through to routes`);
             }
             next();
         });
@@ -2331,6 +2347,8 @@ if (process.env.NODE_ENV === 'production') {
         // Handle React routing - return index.html for all non-API, non-static routes
         // This must be after static file serving and root route
         app.get('*', (req, res) => {
+            console.log(`🔍 Catch-all route hit: ${req.method} ${req.path}`);
+            
             // Don't serve index.html for API routes or socket.io
             if (req.path.startsWith('/api')) {
                 console.warn(`⚠️  API route not found: ${req.method} ${req.path}`);
@@ -2346,16 +2364,20 @@ if (process.env.NODE_ENV === 'production') {
                 return res.status(404).json({ error: 'Socket.io endpoint not found' });
             }
             
-            // Don't serve index.html for static asset requests (they should have been handled by static middleware)
-            // If we get here with a file extension, the file doesn't exist
+            // CRITICAL: Don't serve index.html for static asset requests
+            // If we get here with a file extension, the file doesn't exist - return 404, not HTML
             const hasExtension = /\.[a-zA-Z0-9]+$/.test(req.path);
             if (hasExtension) {
                 const requestedFile = path.join(absoluteFrontendPath, req.path);
-                console.warn(`⚠️  Static file not found: ${req.path} (checked: ${requestedFile})`);
+                console.error(`❌ Static file not found in catch-all: ${req.path}`);
+                console.error(`   Checked path: ${requestedFile}`);
+                console.error(`   File exists: ${existsSync(requestedFile)}`);
+                // Return 404 JSON, NOT HTML
                 return res.status(404).json({ 
                     error: 'File not found',
                     path: req.path,
-                    message: 'The requested static file does not exist. Make sure the frontend was built correctly.'
+                    message: 'The requested static file does not exist. Make sure the frontend was built correctly.',
+                    checkedPath: requestedFile
                 });
             }
             
