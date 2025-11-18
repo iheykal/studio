@@ -346,6 +346,11 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
     
     const localDispatchRef = useRef(dispatch);
     localDispatchRef.current = dispatch;
+    
+    // Refs to store latest functions to avoid timer resets
+    const handleRollDiceRef = useRef<(() => Promise<void>) | null>(null);
+    const broadcastActionRef = useRef<((action: Action) => void) | null>(null);
+    const dispatchRef = useRef<((action: Action) => void) | null>(null);
     dispatchRef.current = dispatch;
     
     // Keep a ref to the current state for use in callbacks
@@ -364,11 +369,8 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
     const [diceRollCountdown, setDiceRollCountdown] = useState<number | null>(null);
     const [moveCountdown, setMoveCountdown] = useState<number | null>(null);
     const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
-    
-    // Refs to store latest functions to avoid timer resets
-    const handleRollDiceRef = useRef<(() => Promise<void>) | null>(null);
-    const broadcastActionRef = useRef<((action: Action) => void) | null>(null);
-    const dispatchRef = useRef<((action: Action) => void) | null>(null);
+    const diceRollCountdownRef = useRef<number | null>(null);
+    const moveCountdownRef = useRef<number | null>(null);
 
     // Track socket connection status
     useEffect(() => {
@@ -426,47 +428,65 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
         };
     }, []);
 
-    // Countdown timer effect - updates every second
+    // Sync refs with state values
     useEffect(() => {
-        // Clear any existing interval
-        if (countdownIntervalRef.current) {
+        diceRollCountdownRef.current = diceRollCountdown;
+    }, [diceRollCountdown]);
+    
+    useEffect(() => {
+        moveCountdownRef.current = moveCountdown;
+    }, [moveCountdown]);
+
+    // Countdown timer effect - updates every second
+    // Only start/stop interval when countdowns become active/inactive, not on every value change
+    useEffect(() => {
+        const hasActiveCountdown = diceRollCountdown !== null || moveCountdown !== null;
+        
+        // Only manage interval when countdown state changes from active to inactive or vice versa
+        if (hasActiveCountdown && !countdownIntervalRef.current) {
+            // Start interval when countdown becomes active
+            console.log('⏰ Starting countdown interval', { diceRollCountdown, moveCountdown });
+            countdownIntervalRef.current = setInterval(() => {
+                // Use refs to get current values without causing re-renders
+                const currentDiceRoll = diceRollCountdownRef.current;
+                const currentMove = moveCountdownRef.current;
+                
+                if (currentDiceRoll !== null && currentDiceRoll > 0) {
+                    const newValue = currentDiceRoll - 1;
+                    if (newValue <= 0) {
+                        console.log('⏰ Dice roll countdown reached 0');
+                        setDiceRollCountdown(null);
+                    } else {
+                        console.log('⏰ Dice roll countdown:', newValue);
+                        setDiceRollCountdown(newValue);
+                    }
+                }
+                
+                if (currentMove !== null && currentMove > 0) {
+                    const newValue = currentMove - 1;
+                    if (newValue <= 0) {
+                        console.log('⏰ Move countdown reached 0');
+                        setMoveCountdown(null);
+                    } else {
+                        setMoveCountdown(newValue);
+                    }
+                }
+            }, 1000);
+        } else if (!hasActiveCountdown && countdownIntervalRef.current) {
+            // Stop interval when all countdowns become inactive
+            console.log('⏰ Stopping countdown interval - no active timers');
             clearInterval(countdownIntervalRef.current);
             countdownIntervalRef.current = null;
         }
 
-        // Start countdown interval if either timer is active
-        if (diceRollCountdown !== null || moveCountdown !== null) {
-            console.log('⏰ Starting countdown interval', { diceRollCountdown, moveCountdown });
-            countdownIntervalRef.current = setInterval(() => {
-                setDiceRollCountdown((prev) => {
-                    if (prev === null) return null;
-                    if (prev <= 1) {
-                        console.log('⏰ Dice roll countdown reached 0');
-                        return null;
-                    }
-                    console.log('⏰ Dice roll countdown:', prev - 1);
-                    return prev - 1;
-                });
-                setMoveCountdown((prev) => {
-                    if (prev === null) return null;
-                    if (prev <= 1) {
-                        console.log('⏰ Move countdown reached 0');
-                        return null;
-                    }
-                    return prev - 1;
-                });
-            }, 1000);
-        } else {
-            console.log('⏰ No active countdown timers');
-        }
-
         return () => {
-            if (countdownIntervalRef.current) {
+            // Cleanup on unmount or when countdowns become inactive
+            if (countdownIntervalRef.current && !hasActiveCountdown) {
                 clearInterval(countdownIntervalRef.current);
                 countdownIntervalRef.current = null;
             }
         };
-    }, [diceRollCountdown, moveCountdown]);
+    }, [diceRollCountdown !== null, moveCountdown !== null]);
 
     // --- Multiplayer Communication Effect ---
     useEffect(() => {
