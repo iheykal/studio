@@ -2264,6 +2264,30 @@ if (process.env.NODE_ENV === 'production') {
             console.warn('⚠️  Could not list assets:', e.message);
         }
         
+        // Explicitly handle root path FIRST (before static middleware)
+        app.get('/', (req, res) => {
+            const indexPath = path.join(absoluteFrontendPath, 'index.html');
+            if (!existsSync(indexPath)) {
+                console.error(`❌ index.html not found at: ${indexPath}`);
+                return res.status(500).json({ 
+                    error: 'Frontend not built',
+                    message: 'The frontend has not been built. Please run "npm run build" before starting the server.',
+                    expectedPath: indexPath
+                });
+            }
+            console.log('📄 Serving index.html for root path');
+            res.sendFile(indexPath, (err) => {
+                if (err) {
+                    console.error('Error serving index.html:', err);
+                    if (!res.headersSent) {
+                        res.status(500).json({ error: 'Failed to serve frontend', details: err.message });
+                    }
+                }
+            });
+        });
+        
+        // Serve static files (CSS, JS, images, etc.) with proper MIME types
+        // This MUST be after the root route but before the catch-all route
         app.use(express.static(absoluteFrontendPath, {
             // Don't serve index.html for static file requests
             index: false,
@@ -2288,56 +2312,16 @@ if (process.env.NODE_ENV === 'production') {
                     res.setHeader('Content-Type', 'image/svg+xml');
                 }
             },
-            // Don't fallthrough - return 404 if file not found
-            fallthrough: false
+            // Allow fallthrough so React Router can handle routes
+            fallthrough: true
         }));
         
-        // Add logging middleware for static file requests (production)
+        // Add request logging for debugging
         app.use((req, res, next) => {
-            if (req.path.startsWith('/assets/') || req.path.startsWith('/audio/')) {
-                const requestedFile = path.join(absoluteFrontendPath, req.path);
-                console.log('📁 Static file request:', {
-                    path: req.path,
-                    exists: existsSync(requestedFile),
-                    absolutePath: requestedFile
-                });
+            if (req.path === '/' || !req.path.startsWith('/api')) {
+                console.log(`📥 Request: ${req.method} ${req.path}`);
             }
             next();
-        });
-        
-        // Log static file requests for debugging
-        if (process.env.NODE_ENV !== 'production') {
-            app.use((req, res, next) => {
-                if (req.path.startsWith('/assets/') || req.path.startsWith('/audio/')) {
-                    const requestedFile = path.join(frontendPath, req.path);
-                    console.log('📁 Static file request:', {
-                        path: req.path,
-                        exists: existsSync(requestedFile),
-                        file: requestedFile
-                    });
-                }
-                next();
-            });
-        }
-        
-        // Explicitly handle root path
-        app.get('/', (req, res) => {
-            const indexPath = path.join(absoluteFrontendPath, 'index.html');
-            if (!existsSync(indexPath)) {
-                console.error(`❌ index.html not found at: ${indexPath}`);
-                return res.status(500).json({ 
-                    error: 'Frontend not built',
-                    message: 'The frontend has not been built. Please run "npm run build" before starting the server.',
-                    expectedPath: indexPath
-                });
-            }
-            console.log('📄 Serving index.html for root path');
-            res.sendFile(indexPath, (err) => {
-                if (err) {
-                    console.error('Error serving index.html:', err);
-                    res.status(500).json({ error: 'Failed to serve frontend', details: err.message });
-                }
-            });
         });
         
         // Handle React routing - return index.html for all non-API routes
